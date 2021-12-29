@@ -355,7 +355,7 @@ impl<S: Store + 'static> RaftNode<S> {
             store.set_hard_state(hs).unwrap();
         }
 
-        for message in ready.messages.drain(..) {
+        for message in ready.take_messages().drain(..) {
             debug!(
                 "message from {} to {}",
                 message.get_from(),
@@ -390,27 +390,28 @@ impl<S: Store + 'static> RaftNode<S> {
             store.set_hard_state(hs)?;
         }
 
-        if let Some(committed_entries) = ready.committed_entries.take() {
-            let mut _last_apply_index = 0;
-            for entry in &committed_entries {
-                // Mostly, you need to save the last apply index to resume applying
-                // after restart. Here we just ignore this because we use a Memory storage.
-                _last_apply_index = entry.get_index();
+        let mut committed_entries = ready.take_committed_entries();
 
-                if entry.get_data().is_empty() {
-                    // Emtpy entry, when the peer becomes Leader it will send an empty entry.
-                    continue;
-                }
+        let mut _last_apply_index = 0;
+        for entry in &committed_entries {
+            // Mostly, you need to save the last apply index to resume applying
+            // after restart. Here we just ignore this because we use a Memory storage.
+            _last_apply_index = entry.get_index();
 
-                match entry.get_entry_type() {
-                    EntryType::EntryNormal => self.handle_normal(&entry, client_send).await?,
-                    EntryType::EntryConfChange => {
-                        self.handle_config_change(&entry, client_send).await?
-                    }
-                    EntryType::EntryConfChangeV2 => unimplemented!(),
+            if entry.get_data().is_empty() {
+                // Emtpy entry, when the peer becomes Leader it will send an empty entry.
+                continue;
+            }
+
+            match entry.get_entry_type() {
+                EntryType::EntryNormal => self.handle_normal(&entry, client_send).await?,
+                EntryType::EntryConfChange => {
+                    self.handle_config_change(&entry, client_send).await?
                 }
+                EntryType::EntryConfChangeV2 => unimplemented!(),
             }
         }
+
         self.advance(ready);
         Ok(())
     }
